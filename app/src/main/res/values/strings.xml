@@ -54,7 +54,9 @@
     <string name="dlg_select_map_title">Karte auswählen</string>
     <string name="header_offline_maps">Offline-Karten</string>
     <string name="header_online_maps">Online-Karten</string>
-    <string name="header_overlays">Overlays</string>
+    <string name="header_overlays">Offline-Overlays</string>
+    <string name="overlay_offline_suffix">(offline)</string>
+    <string name="overlay_online_suffix">(online)</string>
     <string name="overlay_none">Kein Overlay</string>
     <string name="btn_add_map">+ Karte hinzufügen</string>
     <string name="dlg_rename_title">Karte umbenennen</string>

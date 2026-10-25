@@ -515,20 +515,48 @@ public class MapsCatalog {
         prefs.edit().putBoolean("OverlayDisplayed", show).apply();
     }
 
+    /**
+     * Long press on the overlay button: offline overlays (own MBTiles) first, then the online overlays.
+     * One overlay at a time: choosing one switches the other kind off.
+     */
     public void selectOverlay(Context context) {
         MenuUtils.MenuBuilder menu = new MenuUtils.MenuBuilder(context)
                 .setTitle(R.string.dlg_select_overlay_source_title);
+        int checked = -1, item = 0;
+
+        List<File> files = offline != null ? offline.listOverlays() : java.util.Collections.emptyList();
+        String activeFile = prefs.getString(PREF_OVERLAY_FILE, null);
+        boolean onlineShown = prefs.getBoolean("OverlayDisplayed", false);
+
+        menu.add(context.getString(R.string.overlay_none), () -> {
+            selectOfflineOverlay(null);
+            setOverlay(false);
+        });
+        if (activeFile == null && !onlineShown) checked = item;
+        item++;
+
+        for (File f : files) {
+            menu.add(OfflineMapManager.readTitle(f) + " " + context.getString(R.string.overlay_offline_suffix), () -> {
+                setOverlay(false);
+                selectOfflineOverlay(f);
+            });
+            if (f.getName().equals(activeFile)) checked = item;
+            item++;
+        }
 
         for (int i = 0; i < OVERLAY_SOURCES.length; i++) {
             int i2 = i;
-            menu.add(OVERLAY_SOURCES[i].toString(), () -> {
+            menu.add(OVERLAY_SOURCES[i].toString() + " " + context.getString(R.string.overlay_online_suffix), () -> {
+                selectOfflineOverlay(null);
                 overlayIndex = i2;
                 prefs.edit().putInt("overlaySourceIndex", overlayIndex).apply();
                 setOverlay(true);
             });
+            if (checked < 0 && onlineShown && i == overlayIndex) checked = item;
+            item++;
         }
 
-        menu.show2(overlayIndex);
+        menu.show2(checked);
     }
 
     public interface CallbackSetOverlaySource {
