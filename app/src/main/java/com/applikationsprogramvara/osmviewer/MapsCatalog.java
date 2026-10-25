@@ -79,6 +79,8 @@ public class MapsCatalog {
     public static final int OFFLINE_INDEX = MAP_SOURCES.length;
     private static final String PREF_OFFLINE_FILE = "offlineMapFile";
     private static final String PREF_OVERLAY_FILE = "offlineOverlayFile";
+    /** last overlay switched on ("file:<name>" or "online:<index>"), for the short press on the overlay button */
+    private static final String PREF_LAST_OVERLAY = "lastOverlay";
 
     private final SharedPreferences prefs;
     private final CallbackSetMapSource setMap;
@@ -110,7 +112,7 @@ public class MapsCatalog {
     /** Shows the given overlay file (null = none) and remembers it. */
     public void selectOfflineOverlay(@Nullable File file) {
         if (file == null) prefs.edit().remove(PREF_OVERLAY_FILE).apply();
-        else prefs.edit().putString(PREF_OVERLAY_FILE, file.getName()).apply();
+        else prefs.edit().putString(PREF_OVERLAY_FILE, file.getName()).putString(PREF_LAST_OVERLAY, "file:" + file.getName()).apply();
         if (setOfflineOverlay != null) setOfflineOverlay.set(file);
     }
 
@@ -515,6 +517,34 @@ public class MapsCatalog {
         prefs.edit().putBoolean("OverlayDisplayed", show).apply();
     }
 
+    /** true if an overlay (offline or online) is shown */
+    public boolean anyOverlayShown() {
+        return prefs.getString(PREF_OVERLAY_FILE, null) != null || prefs.getBoolean("OverlayDisplayed", false);
+    }
+
+    /**
+     * Short press on the overlay button: switches the shown overlay off, or the last chosen one on again
+     * (offline or online; at first the first offline overlay, if there is one).
+     */
+    public void toggleOverlay() {
+        if (anyOverlayShown()) {
+            selectOfflineOverlay(null);
+            setOverlay(false);
+            return;
+        }
+        String last = prefs.getString(PREF_LAST_OVERLAY, null);
+        if (last == null && offline != null && !offline.listOverlays().isEmpty())
+            last = "file:" + offline.listOverlays().get(0).getName();
+        if (last != null && last.startsWith("file:") && offline != null) {
+            File f = offline.find(last.substring(5));
+            if (f != null && OfflineMapManager.isOverlay(f)) {
+                selectOfflineOverlay(f);
+                return;
+            }
+        }
+        setOverlay(true);
+    }
+
     /**
      * Long press on the overlay button: offline overlays (own MBTiles) first, then the online overlays.
      * One overlay at a time: choosing one switches the other kind off.
@@ -549,7 +579,7 @@ public class MapsCatalog {
             menu.add(OVERLAY_SOURCES[i].toString() + " " + context.getString(R.string.overlay_online_suffix), () -> {
                 selectOfflineOverlay(null);
                 overlayIndex = i2;
-                prefs.edit().putInt("overlaySourceIndex", overlayIndex).apply();
+                prefs.edit().putInt("overlaySourceIndex", overlayIndex).putString(PREF_LAST_OVERLAY, "online:" + i2).apply();
                 setOverlay(true);
             });
             if (checked < 0 && onlineShown && i == overlayIndex) checked = item;

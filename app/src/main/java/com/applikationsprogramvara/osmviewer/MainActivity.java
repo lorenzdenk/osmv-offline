@@ -238,11 +238,8 @@ public class MainActivity extends AppCompatActivity {
                 provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
                 map.getOverlays().add(overlay);
                 keepMarkersOnTop();
-
-                btnOverlay.setImageResource(R.drawable.ic_overlay_on);
-            } else {
-                btnOverlay.setImageResource(R.drawable.ic_overlay_off);
             }
+            updateOverlayButton();
 
             map.invalidate();
         });
@@ -1111,6 +1108,7 @@ public class MainActivity extends AppCompatActivity {
                 Toast.makeText(this, getString(R.string.toast_offline_open_failed, e.getMessage()), Toast.LENGTH_LONG).show();
             }
         }
+        if (btnOverlay != null) updateOverlayButton();
         map.invalidate();
     }
 
@@ -1477,7 +1475,13 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void clickSwitchOverlay() {
-        mapsCatalog.setOverlay(overlay == null);
+        mapsCatalog.toggleOverlay();
+        updateOverlayButton();
+    }
+
+    /** overlay button "on" while any overlay (offline or online) is shown */
+    private void updateOverlayButton() {
+        btnOverlay.setImageResource(overlay != null || offlineOverlay != null ? R.drawable.ic_overlay_on : R.drawable.ic_overlay_off);
     }
 
     boolean switchOverlaySecondary() {
