@@ -237,6 +237,7 @@ public class MainActivity extends AppCompatActivity {
                 overlay.setLoadingBackgroundColor(Color.TRANSPARENT);
                 provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
                 map.getOverlays().add(overlay);
+                keepMarkersOnTop();
 
                 btnOverlay.setImageResource(R.drawable.ic_overlay_on);
             } else {
@@ -478,8 +479,12 @@ public class MainActivity extends AppCompatActivity {
         //Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this));
         map.onResume(); //needed for compass, my location overlays, v6.0.0 and up
 
-        if (mLocationOverlay != null && map.getOverlays().contains(mLocationOverlay))
+        if (mLocationOverlay != null && map.getOverlays().contains(mLocationOverlay)) {
             setChangeLocationListener(); // restarting own implementation of location listener, otherwise arrow / person icon will be displayed correctly, but no interception will happen
+            keepMarkersOnTop();
+        } else if (prefs.getBoolean("GPSisOn", true) && locationAllowedQuietly()) {
+            switchGPS(); // "show position" is on, but it could not start before (permission or location service was off)
+        }
 
     }
 
@@ -600,6 +605,19 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
+    /** location permission granted and a location service on (without asking or showing anything) */
+    private boolean locationAllowedQuietly() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+            return false;
+        LocationManager lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        try {
+            return lm != null && (lm.isProviderEnabled(LocationManager.GPS_PROVIDER) || lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER));
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     void switchGPS() {
         if ((mLocationOverlay == null) || !map.getOverlays().contains(mLocationOverlay)) {
             if (!permissionsGrantedAndLocationServiceEnabled(REQUEST_LOCATION_DISPLAY)) return;
@@ -652,6 +670,10 @@ public class MainActivity extends AppCompatActivity {
         }
 
         if (!permissionsGrantedAndLocationServiceEnabled(REQUEST_LOCATION_JUMP)) return;
+
+        // "show position" is on but the marker is not there (e.g. it could not start with the app): start it now
+        if (prefs.getBoolean("GPSisOn", true) && (mLocationOverlay == null || !map.getOverlays().contains(mLocationOverlay)))
+            switchGPS();
 
         boolean jumpPerformed = false;
         LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
@@ -1046,6 +1068,19 @@ public class MainActivity extends AppCompatActivity {
         binding.scaleBar.invalidate();
     }
 
+    /**
+     * The position marker and the ruler are drawn last, so no map overlay (tiles of an offline overlay,
+     * Waymarked Trails) ever covers them, whatever order the overlays were switched on in.
+     */
+    private void keepMarkersOnTop() {
+        List<Overlay> overlays = map.getOverlays();
+        for (Overlay o : new Overlay[]{rulerLine, rulerPoints, mLocationOverlay}) {
+            if (o != null && overlays.remove(o))
+                overlays.add(o);
+        }
+        map.invalidate();
+    }
+
     // ------------------------------------------------------------------ offline overlays
 
     private TilesOverlay offlineOverlay = null;
@@ -1069,7 +1104,8 @@ public class MainActivity extends AppCompatActivity {
                 offlineOverlay.setLoadingBackgroundColor(Color.TRANSPARENT);
                 offlineOverlay.setLoadingLineColor(Color.TRANSPARENT);
                 provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
-                map.getOverlays().add(Math.min(1, map.getOverlays().size()), offlineOverlay); // above the map, below position, ruler etc.
+                map.getOverlays().add(offlineOverlay);
+                keepMarkersOnTop(); // above the map, below position, ruler etc.
                 activeOverlayFile = file;
             } catch (Exception e) {
                 Toast.makeText(this, getString(R.string.toast_offline_open_failed, e.getMessage()), Toast.LENGTH_LONG).show();
@@ -1125,6 +1161,7 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
 
+            keepMarkersOnTop();
             btnChangeSource.setImageResource(R.drawable.ic_map_offline);
             mScaleBarOverlay.setBackgroundPaint(new Paint() {{ setColor(0xCCFFFFFF); }});
             map.invalidate();
