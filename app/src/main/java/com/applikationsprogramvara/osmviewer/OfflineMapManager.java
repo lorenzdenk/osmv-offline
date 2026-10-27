@@ -35,7 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class OfflineMapManager {
 
-    public static final String[] SUPPORTED_EXTENSIONS = {".mbtiles", ".sqlite", ".zip", ".gemf"};
+    public static final String[] SUPPORTED_EXTENSIONS = {".mbtiles", ".sqlite", ".zip", ".gemf", ".gpx"};
 
     private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
@@ -112,8 +112,14 @@ public class OfflineMapManager {
 
     private static final java.util.Map<String, Boolean> overlayCache = new java.util.HashMap<>();
 
-    /** True for MBTiles files whose metadata says type = overlay (transparent layer over a base map). */
+    /** GPX file (tracks, routes, waypoints), always shown as an overlay */
+    public static boolean isGpx(File file) {
+        return file.getName().toLowerCase(Locale.ROOT).endsWith(".gpx");
+    }
+
+    /** True for GPX files and for MBTiles files whose metadata says type = overlay (transparent layer over a base map). */
     public static boolean isOverlay(File file) {
+        if (isGpx(file)) return true;
         if (!isMBTiles(file)) return false;
         String key = file.getPath() + "|" + file.lastModified() + "|" + file.length();
         Boolean cached = overlayCache.get(key);
@@ -228,10 +234,16 @@ public class OfflineMapManager {
                 }
 
                 // file name without a known extension (some file providers strip it): accept SQLite files as MBTiles
+                // and XML files with a <gpx> element as GPX
                 if (!isSupported(displayName)) {
                     if (isSQLite(part)) displayName = displayName + ".mbtiles";
+                    else if (looksLikeGpx(part)) displayName = displayName + ".gpx";
                     else throw new UnsupportedFileException();
                 }
+
+                // GPX: must be readable and contain something to draw
+                if (displayName.toLowerCase(Locale.ROOT).endsWith(".gpx"))
+                    GpxOverlay.read(part);
 
                 // incomplete downloads are common with large files: check the database before using it
                 if (isSQLite(part))
@@ -281,6 +293,16 @@ public class OfflineMapManager {
         }
     }
 
+    private static boolean looksLikeGpx(File f) {
+        byte[] head = new byte[4096];
+        try (InputStream in = new FileInputStream(f)) {
+            int n = in.read(head);
+            return n > 0 && new String(head, 0, n, "UTF-8").contains("<gpx");
+        } catch (IOException e) {
+            return false;
+        }
+    }
+
     private static boolean isSQLite(File f) {
         byte[] header = new byte[16];
         try (InputStream in = new FileInputStream(f)) {
@@ -293,6 +315,10 @@ public class OfflineMapManager {
 
     /** Map title: the "name" stored in an MBTiles file, otherwise the file name without extension. */
     public static String readTitle(File file) {
+        if (isGpx(file)) {
+            String n = GpxOverlay.readName(file);
+            if (n != null) return n;
+        }
         if (isMBTiles(file)) {
             try (SQLiteDatabase db = SQLiteDatabase.openDatabase(file.getPath(), null, SQLiteDatabase.OPEN_READONLY);
                  Cursor c = db.rawQuery("SELECT value FROM metadata WHERE name = 'name'", null)) {

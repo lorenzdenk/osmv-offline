@@ -34,6 +34,14 @@
             app:defaultValue="false"
             app:iconSpaceReserved="false" />
 
+        <ListPreference android:key="OverlayOpacity"
+            android:title="Deckkraft der Overlays"
+            android:summary="%s – für alle Overlays (Offline, GPX und Online); weniger lässt die Karte darunter durchscheinen"
+            android:defaultValue="100"
+            android:entries="@array/overlayOpacityNames"
+            android:entryValues="@array/overlayOpacityValues"
+            app:iconSpaceReserved="false" />
+
         <CheckBoxPreference android:key="ShowRulerButton"
             android:title="Lineal-Knopf anzeigen"
             android:summary="Knopf links neben den Einstellungen zum Messen von Abständen (auch mit langem Druck auf die Einstellungen ein-/ausschaltbar)"
@@ -84,11 +92,19 @@
 
         <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
             android:title="🗺 Kartenauswahl (oben rechts)"
-            android:summary="Tippen oder lange drücken: Kartenmenü öffnen. Dort eine Karte wählen, mit dem Stift umbenennen oder löschen, oder mit „+ Karte hinzufügen“ eine neue Karte einlesen. Online-Karten (brauchen Internet): OpenTopoMap, OpenCycleMap (mit API-Schlüssel, siehe oben) und CyclOSM." />
+            android:summary="Tippen oder lange drücken: Kartenmenü öffnen. Dort eine Karte wählen, mit dem Stift umbenennen oder löschen, oder mit „+ Karte / GPX“ eine neue Karte einlesen. Online-Karten (brauchen Internet): OpenTopoMap, OpenCycleMap (mit API-Schlüssel, siehe oben) und CyclOSM." />
 
         <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
             android:title="◇ Overlay (oben rechts, nur wenn oben eingeschaltet)"
-            android:summary="Tippen: Wander- oder Velowege über die Karte legen bzw. ausblenden (braucht Internet).\nLange drücken: Overlay-Quelle wählen." />
+            android:summary="Tippen: das zuletzt gewählte Overlay ein- bzw. ausblenden.\nLange drücken: Overlay wählen – eigene Offline-Overlays und GPX-Dateien oder Wander-/Velowege von Waymarked Trails (online, braucht Internet). Die Deckkraft aller Overlays steht oben unter „Deckkraft der Overlays“." />
+
+        <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
+            android:title="📍 Pins"
+            android:summary="Lange auf die Karte drücken: an dieser Stelle einen Pin setzen und benennen (die Koordinaten lassen sich dabei noch ändern).\nKoordinaten eingeben oder einfügen: Kartenauswahl → ganz unten „+ Pin bei Koordinaten setzen“ (z.B. -42.96245, 146.72793 oder 42°57'44.8&quot;S 146°43'40.6&quot;E).\nPin antippen: umbenennen, verschieben oder löschen. In der Kartenauswahl stehen alle Pins; antippen springt hin." />
+
+        <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
+            android:title="GPX-Datei als Overlay"
+            android:summary="Kartenauswahl → „+ Karte / GPX“ → .gpx-Datei wählen. Tracks und Routen erscheinen als violette Linie, Wegpunkte als Punkte mit Namen. Die Datei steht danach unter „Offline-Overlays“ und im Overlay-Knopf (lange drücken)." />
 
         <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
             android:title="📏 Lineal (links neben den Einstellungen, nur wenn oben eingeschaltet)"
@@ -108,7 +124,7 @@
 
         <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
             android:title="Offline-Karte einlesen"
-            android:summary="1. Die Kartendatei (.mbtiles, auch .sqlite, .zip oder .gemf) aufs Handy laden, z.B. im Browser herunterladen oder per USB kopieren.\n2. Kartenauswahl oben rechts antippen → „+ Karte hinzufügen“.\n3. Die Datei auswählen (meist im Ordner „Downloads“). Sie wird in die App kopiert; danach kann man die Originaldatei löschen.\n4. Die Karte erscheint unter „Offline-Karten“ und die Ansicht springt auf ihr Gebiet.\nOffline-Karten brauchen kein Internet. Nur Raster-Karten (Bilder) werden unterstützt, keine Vektorkarten." />
+            android:summary="1. Die Kartendatei (.mbtiles, auch .sqlite, .zip oder .gemf) aufs Handy laden, z.B. im Browser herunterladen oder per USB kopieren.\n2. Kartenauswahl oben rechts antippen → „+ Karte / GPX“.\n3. Die Datei auswählen (meist im Ordner „Downloads“). Sie wird in die App kopiert; danach kann man die Originaldatei löschen.\n4. Die Karte erscheint unter „Offline-Karten“ und die Ansicht springt auf ihr Gebiet.\nOffline-Karten brauchen kein Internet. Nur Raster-Karten (Bilder) werden unterstützt, keine Vektorkarten." />
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/stg_cat_about"

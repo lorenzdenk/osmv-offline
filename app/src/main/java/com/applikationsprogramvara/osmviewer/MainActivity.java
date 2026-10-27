@@ -176,6 +176,7 @@ public class MainActivity extends AppCompatActivity {
         tvDebugInfo = binding.debugLayout.tvDebugInfo;
         tvZoom = binding.auxButtons.tvZoom;
         tvSpeed = binding.textLabelsPanel.tvSpeed;
+        tvSpeed.setVisibility(View.GONE); // speed display not wanted (large grey number top left)
         tvDistance = binding.textLabelsPanel.tvDistance;
         tvAltitude = binding.debugLayout.tvAltitude;
         btnJumpToLocation = binding.btnJumpToLocation;
@@ -237,6 +238,7 @@ public class MainActivity extends AppCompatActivity {
                 overlay.setLoadingBackgroundColor(Color.TRANSPARENT);
                 provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
                 map.getOverlays().add(overlay);
+                applyOverlayOpacity();
                 keepMarkersOnTop();
             }
             updateOverlayButton();
@@ -245,6 +247,9 @@ public class MainActivity extends AppCompatActivity {
         });
 
         offlineMaps = new OfflineMapManager(this);
+        pins = new PinManager(prefs, map, this::jump);
+        mapsCatalog.setPins(pins);
+        mapsCatalog.setPinJump(this::jump);
         mapsCatalog.setOffline(offlineMaps, this::applyOfflineMap,
                 () -> pickOfflineMap.launch(new String[]{"*/*"})); // .mbtiles etc. have no registered MIME type
         mapsCatalog.setOfflineOverlayCallback(this::applyOfflineOverlay);
@@ -273,6 +278,10 @@ public class MainActivity extends AppCompatActivity {
                 return super.onDoubleTap(e, mapView);
             }
         });
+
+        // own pins: long press on the map sets one, tapping a pin renames, moves or deletes it
+        map.getOverlays().add(pins.getOverlay());
+        keepMarkersOnTop();
 
         map.addMapListener(new MapListener() {
             @Override
@@ -1071,16 +1080,33 @@ public class MainActivity extends AppCompatActivity {
      */
     private void keepMarkersOnTop() {
         List<Overlay> overlays = map.getOverlays();
-        for (Overlay o : new Overlay[]{rulerLine, rulerPoints, mLocationOverlay}) {
+        for (Overlay o : new Overlay[]{pins != null ? pins.getOverlay() : null, rulerLine, rulerPoints, mLocationOverlay}) {
             if (o != null && overlays.remove(o))
                 overlays.add(o);
         }
         map.invalidate();
     }
 
+    /** setting "Deckkraft der Overlays" (percent) for all overlays: offline tiles, GPX and online */
+    private void applyOverlayOpacity() {
+        float a;
+        try { a = Integer.parseInt(prefs.getString("OverlayOpacity", "100")) / 100f; } catch (Exception e) { a = 1f; }
+        android.graphics.ColorFilter filter = null;
+        if (a < 0.999f) {
+            android.graphics.ColorMatrix m = new android.graphics.ColorMatrix();
+            m.setScale(1f, 1f, 1f, a);
+            filter = new android.graphics.ColorMatrixColorFilter(m);
+        }
+        if (overlay != null) overlay.setColorFilter(filter);
+        if (offlineOverlay instanceof TilesOverlay) ((TilesOverlay) offlineOverlay).setColorFilter(filter);
+        if (offlineOverlay instanceof GpxOverlay) ((GpxOverlay) offlineOverlay).setOpacity(a);
+        map.invalidate();
+    }
+
     // ------------------------------------------------------------------ offline overlays
 
-    private TilesOverlay offlineOverlay = null;
+    private Overlay offlineOverlay = null;
+    private PinManager pins;
     private File activeOverlayFile = null;
 
     /** Shows a transparent offline map (MBTiles type "overlay") over the current map; null removes it. */
@@ -1094,17 +1120,33 @@ public class MainActivity extends AppCompatActivity {
         }
         if (file != null) {
             try {
-                OfflineTileProvider provider = new OfflineTileProvider(new SimpleRegisterReceiver(getApplicationContext()), new File[]{file});
-                int tileSize = OfflineMapManager.readTileSize(file);
-                provider.setTileSource(new XYTileSource("OfflineOverlay", 0, 22, tileSize, ".png", new String[0]));
-                offlineOverlay = new TilesOverlay(provider, this);
-                offlineOverlay.setLoadingBackgroundColor(Color.TRANSPARENT);
-                offlineOverlay.setLoadingLineColor(Color.TRANSPARENT);
-                provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
+                if (OfflineMapManager.isGpx(file)) {
+                    GpxOverlay gpx = new GpxOverlay(GpxOverlay.read(file), map);
+                    offlineOverlay = gpx;
+                    // jump to the track if none of it is in view
+                    org.osmdroid.util.BoundingBox box = gpx.getGpx().bounds();
+                    if (box != null && map.getWidth() > 0) {
+                        org.osmdroid.util.BoundingBox view = map.getBoundingBox();
+                        boolean visible = box.getLatSouth() <= view.getLatNorth() && box.getLatNorth() >= view.getLatSouth()
+                                && box.getLonWest() <= view.getLonEast() && box.getLonEast() >= view.getLonWest();
+                        if (!visible) jump(box.getCenterWithDateLine());
+                    }
+                } else {
+                    OfflineTileProvider provider = new OfflineTileProvider(new SimpleRegisterReceiver(getApplicationContext()), new File[]{file});
+                    int tileSize = OfflineMapManager.readTileSize(file);
+                    provider.setTileSource(new XYTileSource("OfflineOverlay", 0, 22, tileSize, ".png", new String[0]));
+                    TilesOverlay tiles = new TilesOverlay(provider, this);
+                    tiles.setLoadingBackgroundColor(Color.TRANSPARENT);
+                    tiles.setLoadingLineColor(Color.TRANSPARENT);
+                    provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
+                    offlineOverlay = tiles;
+                }
                 map.getOverlays().add(offlineOverlay);
-                keepMarkersOnTop(); // above the map, below position, ruler etc.
+                applyOverlayOpacity();
+                keepMarkersOnTop(); // above the map, below pins, position, ruler etc.
                 activeOverlayFile = file;
             } catch (Exception e) {
+                offlineOverlay = null;
                 Toast.makeText(this, getString(R.string.toast_offline_open_failed, e.getMessage()), Toast.LENGTH_LONG).show();
             }
         }
@@ -1253,6 +1295,7 @@ public class MainActivity extends AppCompatActivity {
             }
             loadSettings();
             applyTileScaleKeepingView();
+            applyOverlayOpacity();
             // "show GPS position" is a setting now
             boolean gpsShown = mLocationOverlay != null && map.getOverlays().contains(mLocationOverlay);
             if (prefs.getBoolean("GPSisOn", true) != gpsShown)

@@ -98,6 +98,13 @@ public class MapsCatalog {
         void set(@Nullable File file);
     }
 
+    @Nullable private PinManager pins;
+
+    /** Own pins: listed in the map menu (tap = show, pencil = edit), plus "set pin at coordinates". */
+    public void setPins(PinManager pins) {
+        this.pins = pins;
+    }
+
     /** Enables offline overlays (transparent MBTiles over the map), chosen in the map menu. */
     public void setOfflineOverlayCallback(CallbackSetOfflineOverlay callback) {
         this.setOfflineOverlay = callback;
@@ -322,7 +329,68 @@ public class MapsCatalog {
                 addRow(list, dialog, e, e.key.equals(current), dp);
         }
 
+        if (pins != null) {
+            addHeader(list, context.getString(R.string.header_pins), dp);
+            for (PinManager.Pin p : pins.getPins())
+                addActionRow(list, p.label(), p.name.isEmpty() ? "" : PinManager.formatCoordinates(p.lat, p.lon), dp,
+                        () -> { dialog.dismiss(); if (pinJump != null) pinJump.jump(p.point()); },
+                        () -> { dialog.dismiss(); pins.showEditDialog(context, p); });
+            addActionRow(list, context.getString(R.string.pin_add_coordinates), context.getString(R.string.pin_add_hint), dp,
+                    () -> { dialog.dismiss(); pins.showNewPinDialog(context, null); }, null);
+        }
+
         dialog.show();
+    }
+
+    @Nullable private PinManager.JumpCallback pinJump;
+
+    public void setPinJump(PinManager.JumpCallback jump) {
+        this.pinJump = jump;
+    }
+
+    /** Row without radio button: title, details, optional pencil. */
+    private void addActionRow(android.widget.LinearLayout list, String title, String detailText, float dp,
+                              Runnable onClick, @Nullable Runnable onEdit) {
+        Context context = list.getContext();
+        android.widget.LinearLayout row = new android.widget.LinearLayout(context);
+        row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+        row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        row.setPadding((int) (24 * dp), (int) (6 * dp), (int) (8 * dp), (int) (6 * dp));
+        row.setMinimumHeight((int) (52 * dp));
+        android.util.TypedValue tv = new android.util.TypedValue();
+        context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
+        row.setBackgroundResource(tv.resourceId);
+
+        android.widget.LinearLayout texts = new android.widget.LinearLayout(context);
+        texts.setOrientation(android.widget.LinearLayout.VERTICAL);
+        android.widget.TextView name = new android.widget.TextView(context);
+        name.setText(title);
+        name.setTextSize(17);
+        texts.addView(name);
+        if (!detailText.isEmpty()) {
+            android.widget.TextView details = new android.widget.TextView(context);
+            details.setText(detailText);
+            details.setTextSize(13);
+            details.setAlpha(0.6f);
+            texts.addView(details);
+        }
+        row.addView(texts, new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        if (onEdit != null) {
+            android.widget.ImageButton edit = new android.widget.ImageButton(context);
+            edit.setImageResource(R.drawable.ic_edit);
+            edit.setContentDescription(context.getString(R.string.pin_edit_title));
+            context.getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tv, true);
+            edit.setBackgroundResource(tv.resourceId);
+            edit.setColorFilter(name.getCurrentTextColor());
+            edit.setAlpha(0.7f);
+            int pad = (int) (12 * dp);
+            edit.setPadding(pad, pad, pad, pad);
+            edit.setOnClickListener(v -> onEdit.run());
+            row.addView(edit);
+        }
+        row.setOnClickListener(v -> onClick.run());
+        list.addView(row);
     }
 
     private void addHeader(android.widget.LinearLayout list, String text, float dp) {

@@ -58,9 +58,9 @@
     <string name="overlay_offline_suffix">(offline)</string>
     <string name="overlay_online_suffix">(online)</string>
     <string name="overlay_none">Kein Overlay</string>
-    <string name="btn_add_map">+ Karte hinzufügen</string>
+    <string name="btn_add_map">+ Karte / GPX</string>
     <string name="dlg_rename_title">Karte umbenennen</string>
-    <string name="hint_no_offline_maps">Noch keine Offline-Karten. Mit \"+ Karte hinzufügen\" eine .mbtiles-Datei importieren.</string>
+    <string name="hint_no_offline_maps">Noch keine Offline-Karten. Mit \"+ Karte / GPX\" eine .mbtiles-Datei importieren.</string>
 
     <!-- offline maps -->
     <string name="menu_offline_maps">Offline-Karten…</string>
@@ -76,7 +76,16 @@
     <string name="btn_cancel">Abbrechen</string>
     <string name="toast_offline_imported">Karte importiert: %1$s</string>
     <string name="toast_offline_import_failed">Import fehlgeschlagen: %1$s</string>
-    <string name="toast_offline_unsupported">Dateityp nicht unterstützt. Bitte .mbtiles, .sqlite, .zip oder .gemf verwenden</string>
+    <string name="toast_offline_unsupported">Dateityp nicht unterstützt. Bitte .mbtiles, .sqlite, .zip, .gemf oder .gpx verwenden</string>
     <string name="toast_offline_no_space">Nicht genug Speicherplatz (%1$s benötigt)</string>
     <string name="toast_offline_open_failed">Offline-Karte kann nicht geöffnet werden: %1$s</string>
+    <string name="header_pins">Pins</string>
+    <string name="pin_new_title">Pin setzen</string>
+    <string name="pin_edit_title">Pin bearbeiten</string>
+    <string name="pin_name_hint">Name (optional)</string>
+    <string name="pin_coordinates_label">Koordinaten (Breite, Länge)</string>
+    <string name="pin_coordinates_hint">z.B. -42.96245, 146.72793</string>
+    <string name="pin_coordinates_invalid">Koordinaten nicht lesbar. Beispiele: -42.96245, 146.72793 oder 42°57\'44.8\"S 146°43\'40.6\"E</string>
+    <string name="pin_add_coordinates">+ Pin bei Koordinaten setzen</string>
+    <string name="pin_add_hint">oder lange auf die Karte drücken</string>
 </resources>
