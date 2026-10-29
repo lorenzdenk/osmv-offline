@@ -1068,17 +1068,17 @@ public class MainActivity extends AppCompatActivity {
         map.invalidate();
     }
 
-    /** setting "Deckkraft der Overlays" (percent) for all overlays: offline tiles, GPX and online */
+    /** opacity of each overlay (set in the overlay list, long press on the overlay button) */
     private void applyOverlayOpacity() {
-        float a;
-        try { a = Integer.parseInt(prefs.getString("OverlayOpacity", "100")) / 100f; } catch (Exception e) { a = 1f; }
-        android.graphics.ColorFilter filter = null;
-        if (a < 0.999f) {
-            android.graphics.ColorMatrix m = new android.graphics.ColorMatrix();
-            m.setScale(1f, 1f, 1f, a);
-            filter = new android.graphics.ColorMatrixColorFilter(m);
-        }
-        for (Overlay o : shownOverlays.values()) {
+        for (java.util.Map.Entry<String, Overlay> e : shownOverlays.entrySet()) {
+            float a = mapsCatalog.overlayOpacity(e.getKey()) / 100f;
+            android.graphics.ColorFilter filter = null;
+            if (a < 0.999f) {
+                android.graphics.ColorMatrix m = new android.graphics.ColorMatrix();
+                m.setScale(1f, 1f, 1f, a);
+                filter = new android.graphics.ColorMatrixColorFilter(m);
+            }
+            Overlay o = e.getValue();
             if (o instanceof TilesOverlay) ((TilesOverlay) o).setColorFilter(filter);
             if (o instanceof GpxOverlay) ((GpxOverlay) o).setOpacity(a);
         }

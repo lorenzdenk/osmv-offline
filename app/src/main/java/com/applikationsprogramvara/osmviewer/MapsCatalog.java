@@ -82,6 +82,8 @@ public class MapsCatalog {
     private static final String PREF_OVERLAYS = "overlaysShown";
     /** overlays shown before the last short press switched them off */
     private static final String PREF_LAST_OVERLAYS = "overlaysLast";
+    /** order of all overlays in the overlay list, "|"-separated keys; first = drawn on top */
+    private static final String PREF_OVERLAY_ORDER = "overlayOrder";
     /** older versions: one offline overlay, one online overlay */
     private static final String PREF_OVERLAY_FILE_OLD = "offlineOverlayFile";
 
@@ -215,7 +217,9 @@ public class MapsCatalog {
     private List<MapEntry> overlayEntries(Context context) {
         List<MapEntry> list = new java.util.ArrayList<>();
         if (offline == null) return list;
-        List<File> files = offline.listOverlays();
+        List<File> files = new java.util.ArrayList<>();
+        for (String k : orderedOverlays()) // order of the overlay list (top = drawn on top)
+            if (k.startsWith("file:")) { File f = offline.find(k.substring(5)); if (f != null) files.add(f); }
         for (File f : files) {
             MapEntry e = new MapEntry("file:" + f.getName(), OfflineMapManager.readTitle(f), offline.describe(f), f, -1, -1);
             e.overlay = true;
@@ -595,17 +599,82 @@ public class MapsCatalog {
         applyOverlays();
     }
 
-    /** Hands the shown overlays to the map, offline ones (list order) below the online ones. */
+    /**
+     * All available overlays in the order of the overlay list (first = on top). Overlays not yet in the
+     * saved order: new offline files at the top, online overlays at the bottom.
+     */
+    public List<String> orderedOverlays() {
+        List<String> all = new java.util.ArrayList<>();
+        if (offline != null) for (File f : offline.listOverlays()) all.add("file:" + f.getName());
+        for (OnlineTileSourceBase src : OVERLAY_SOURCES)
+            if (!src.name().endsWith(" http")) all.add("online:" + src.name());
+        List<String> order = new java.util.ArrayList<>();
+        boolean saved = prefs.contains(PREF_OVERLAY_ORDER);
+        for (String k : split(prefs.getString(PREF_OVERLAY_ORDER, "")))
+            if (all.contains(k) && !order.contains(k)) order.add(k);
+        int top = 0;
+        for (String k : all) {
+            if (order.contains(k)) continue;
+            if (k.startsWith("file:") && saved) order.add(top++, k);
+            else order.add(k);
+        }
+        // shown overlays that are not in the list (old "http" variants): at the bottom
+        for (String k : shownOverlays()) if (!order.contains(k)) order.add(k);
+        return order;
+    }
+
+    /** Moves an overlay one place up (-1) or down (+1) in the list. */
+    public void moveOverlay(String key, int direction) {
+        List<String> order = orderedOverlays();
+        int i = order.indexOf(key), j = i + direction;
+        if (i < 0 || j < 0 || j >= order.size()) return;
+        order.set(i, order.get(j));
+        order.set(j, key);
+        prefs.edit().putString(PREF_OVERLAY_ORDER, android.text.TextUtils.join("|", order)).apply();
+        applyOverlays();
+    }
+
+    /** Opacity of one overlay in percent (10-100); before: one setting for all overlays. */
+    public int overlayOpacity(String key) {
+        int def = 100;
+        try { def = Integer.parseInt(prefs.getString("OverlayOpacity", "100")); } catch (Exception ignored) { }
+        return Math.max(10, Math.min(100, prefs.getInt("overlayOpacity_" + key, def)));
+    }
+
+    public void setOverlayOpacity(String key, int percent) {
+        prefs.edit().putInt("overlayOpacity_" + key, percent).apply();
+        applyOverlays();
+    }
+
+    /** Hands the shown overlays to the map in drawing order: the bottom one of the list first. */
     public void applyOverlays() {
         if (setOverlays == null) return;
         List<String> shown = shownOverlays();
+        List<String> order = orderedOverlays();
         java.util.LinkedHashMap<String, Object> result = new java.util.LinkedHashMap<>();
-        if (offline != null)
-            for (File f : offline.listOverlays())
-                if (shown.contains("file:" + f.getName())) result.put("file:" + f.getName(), f);
-        for (OnlineTileSourceBase src : OVERLAY_SOURCES)
-            if (shown.contains("online:" + src.name())) result.put("online:" + src.name(), src);
+        for (int i = order.size() - 1; i >= 0; i--) {
+            String k = order.get(i);
+            if (!shown.contains(k)) continue;
+            if (k.startsWith("file:")) {
+                File f = offline != null ? offline.find(k.substring(5)) : null;
+                if (f != null) result.put(k, f);
+            } else {
+                ITileSource src = onlineSource(k);
+                if (src != null) result.put(k, src);
+            }
+        }
         setOverlays.set(result);
+    }
+
+    /** Title of an overlay for lists (own name from the map menu, if set). */
+    public String overlayTitle(Context context, String key) {
+        String custom = prefs.getString("mapName_" + key, null);
+        if (custom != null && !custom.trim().isEmpty()) return custom;
+        if (key.startsWith("file:") && offline != null) {
+            File f = offline.find(key.substring(5));
+            if (f != null) return OfflineMapManager.readTitle(f);
+        }
+        return key.substring(key.indexOf(':') + 1);
     }
 
     /** Switches one overlay on or off (map menu, overlay chooser). */
@@ -651,40 +720,118 @@ public class MapsCatalog {
     }
 
     /**
-     * Long press on the overlay button: all overlays with check boxes, offline ones (own MBTiles and GPX)
-     * first, then the online ones. Several can be on at the same time.
+     * Long press on the overlay button: all overlays in their order (top of the list = drawn on top),
+     * each with a check box (shown), arrows to change the order and a slider for its opacity.
      */
     public void selectOverlay(Context context) {
-        List<String> keys = new java.util.ArrayList<>();
-        List<String> titles = new java.util.ArrayList<>();
-        if (offline != null)
-            for (File f : offline.listOverlays()) {
-                String key = "file:" + f.getName();
-                String custom = prefs.getString("mapName_" + key, null);
-                String title = custom != null && !custom.trim().isEmpty() ? custom : OfflineMapManager.readTitle(f);
-                keys.add(key);
-                titles.add(title + " " + context.getString(R.string.overlay_offline_suffix));
-            }
-        for (OnlineTileSourceBase src : OVERLAY_SOURCES) {
-            if (src.name().endsWith(" http")) continue; // fallbacks for very old devices
-            keys.add("online:" + src.name());
-            titles.add(src.name() + " " + context.getString(R.string.overlay_online_suffix));
-        }
-        List<String> shown = shownOverlays();
-        boolean[] checked = new boolean[keys.size()];
-        for (int i = 0; i < keys.size(); i++) checked[i] = shown.contains(keys.get(i));
-
+        float dp = context.getResources().getDisplayMetrics().density;
+        android.widget.LinearLayout list = new android.widget.LinearLayout(context);
+        list.setOrientation(android.widget.LinearLayout.VERTICAL);
+        list.setPadding(0, (int) (4 * dp), 0, (int) (4 * dp));
+        android.widget.ScrollView scroll = new android.widget.ScrollView(context);
+        scroll.addView(list);
+        fillOverlayList(context, list, dp);
         new AlertDialog.Builder(context)
                 .setTitle(R.string.dlg_select_overlay_source_title)
-                .setMultiChoiceItems(titles.toArray(new String[0]), checked, (d, which, isChecked) -> {
-                    List<String> now = shownOverlays();
-                    String k = keys.get(which);
-                    if (isChecked && !now.contains(k)) now.add(k);
-                    if (!isChecked) now.remove(k);
-                    setShown(now);
-                })
+                .setView(scroll)
                 .setPositiveButton(R.string.btn_ok, null)
                 .show();
+    }
+
+    private void fillOverlayList(Context context, android.widget.LinearLayout list, float dp) {
+        list.removeAllViews();
+        android.widget.TextView hint = new android.widget.TextView(context);
+        hint.setText(R.string.overlay_list_hint);
+        hint.setTextSize(13);
+        hint.setAlpha(0.6f);
+        hint.setPadding((int) (24 * dp), (int) (4 * dp), (int) (24 * dp), (int) (8 * dp));
+        list.addView(hint);
+
+        List<String> order = orderedOverlays();
+        List<String> shown = shownOverlays();
+        for (int idx = 0; idx < order.size(); idx++) {
+            String key = order.get(idx);
+            boolean on = shown.contains(key);
+
+            android.widget.LinearLayout row = new android.widget.LinearLayout(context);
+            row.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+            row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            row.setPadding((int) (12 * dp), (int) (4 * dp), (int) (4 * dp), 0);
+
+            android.widget.CheckBox check = new android.widget.CheckBox(context);
+            check.setChecked(on);
+            check.setOnCheckedChangeListener((b, isChecked) -> {
+                List<String> now = shownOverlays();
+                if (isChecked && !now.contains(key)) now.add(key);
+                if (!isChecked) now.remove(key);
+                setShown(now);
+                list.post(() -> fillOverlayList(context, list, dp)); // after this click is handled
+            });
+            row.addView(check);
+
+            android.widget.LinearLayout texts = new android.widget.LinearLayout(context);
+            texts.setOrientation(android.widget.LinearLayout.VERTICAL);
+            android.widget.TextView title = new android.widget.TextView(context);
+            title.setText(overlayTitle(context, key));
+            title.setTextSize(16);
+            texts.addView(title);
+            android.widget.TextView kind = new android.widget.TextView(context);
+            kind.setText(key.startsWith("online:") ? R.string.overlay_kind_online
+                    : key.toLowerCase(java.util.Locale.ROOT).endsWith(".gpx") ? R.string.overlay_kind_gpx : R.string.overlay_kind_offline);
+            kind.setTextSize(12);
+            kind.setAlpha(0.6f);
+            texts.addView(kind);
+            row.addView(texts, new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+            row.addView(arrow(context, "▲", idx > 0, dp, () -> { moveOverlay(key, -1); list.post(() -> fillOverlayList(context, list, dp)); }));
+            row.addView(arrow(context, "▼", idx < order.size() - 1, dp, () -> { moveOverlay(key, 1); list.post(() -> fillOverlayList(context, list, dp)); }));
+            list.addView(row);
+
+            // opacity slider (only for shown overlays, to keep the list short)
+            if (on) {
+                android.widget.LinearLayout op = new android.widget.LinearLayout(context);
+                op.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                op.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                op.setPadding((int) (56 * dp), 0, (int) (16 * dp), (int) (6 * dp));
+                android.widget.TextView label = new android.widget.TextView(context);
+                label.setTextSize(13);
+                label.setMinWidth((int) (92 * dp));
+                int value = overlayOpacity(key);
+                label.setText(context.getString(R.string.overlay_opacity_label, value));
+                android.widget.SeekBar bar = new android.widget.SeekBar(context);
+                bar.setMax(9); // 10 % .. 100 % in steps of 10
+                bar.setProgress(Math.round(value / 10f) - 1);
+                bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+                    @Override public void onProgressChanged(android.widget.SeekBar sb, int p, boolean fromUser) {
+                        int pct = (p + 1) * 10;
+                        label.setText(context.getString(R.string.overlay_opacity_label, pct));
+                        if (fromUser) setOverlayOpacity(key, pct); // live on the map
+                    }
+                    @Override public void onStartTrackingTouch(android.widget.SeekBar sb) { }
+                    @Override public void onStopTrackingTouch(android.widget.SeekBar sb) { }
+                });
+                op.addView(label);
+                op.addView(bar, new android.widget.LinearLayout.LayoutParams(0, android.view.ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                list.addView(op);
+            }
+        }
+    }
+
+    private android.view.View arrow(Context context, String text, boolean enabled, float dp, Runnable action) {
+        android.widget.TextView b = new android.widget.TextView(context);
+        b.setText(text);
+        b.setTextSize(18);
+        b.setGravity(android.view.Gravity.CENTER);
+        b.setMinWidth((int) (44 * dp));
+        b.setMinHeight((int) (44 * dp));
+        b.setAlpha(enabled ? 0.85f : 0.2f);
+        if (enabled) {
+            android.util.TypedValue tv = new android.util.TypedValue();
+            context.getTheme().resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, tv, true);
+            b.setBackgroundResource(tv.resourceId);
+            b.setOnClickListener(v -> action.run());
+        }
+        return b;
     }
 
     /** overlays to show, in drawing order: key → File (offline MBTiles or GPX) or ITileSource (online) */

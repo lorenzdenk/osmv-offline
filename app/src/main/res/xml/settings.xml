@@ -34,14 +34,6 @@
             app:defaultValue="false"
             app:iconSpaceReserved="false" />
 
-        <ListPreference android:key="OverlayOpacity"
-            android:title="Deckkraft der Overlays"
-            android:summary="%s – für alle Overlays (Offline, GPX und Online); weniger lässt die Karte darunter durchscheinen"
-            android:defaultValue="100"
-            android:entries="@array/overlayOpacityNames"
-            android:entryValues="@array/overlayOpacityValues"
-            app:iconSpaceReserved="false" />
-
         <CheckBoxPreference android:key="ShowRulerButton"
             android:title="Lineal-Knopf anzeigen"
             android:summary="Knopf links neben den Einstellungen zum Messen von Abständen (auch mit langem Druck auf die Einstellungen ein-/ausschaltbar)"
@@ -92,7 +84,7 @@
 
         <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
             android:title="◇ Overlay (oben rechts, nur wenn oben eingeschaltet)"
-            android:summary="Tippen: alle Overlays ausblenden bzw. die zuletzt gezeigten wieder einblenden.\nLange drücken: Overlays wählen – mehrere gleichzeitig möglich: eigene Offline-Overlays und GPX-Dateien sowie Wander-/Velowege von Waymarked Trails (online, braucht Internet). Die Deckkraft aller Overlays steht oben unter „Deckkraft der Overlays“." />
+            android:summary="Tippen: alle Overlays ausblenden bzw. die zuletzt gezeigten wieder einblenden.\nLange drücken: Overlay-Liste – mehrere gleichzeitig möglich: eigene Offline-Overlays und GPX-Dateien sowie Wander-/Velowege von Waymarked Trails (online, braucht Internet). Dort lässt sich auch die Reihenfolge ändern (oben in der Liste = obenauf) und für jedes Overlay die Deckkraft einstellen." />
 
         <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
             android:title="📍 Pins"

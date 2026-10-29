@@ -88,4 +88,9 @@
     <string name="pin_coordinates_invalid">Koordinaten nicht lesbar. Beispiele: -42.96245, 146.72793 oder 42°57\'44.8\"S 146°43\'40.6\"E</string>
     <string name="pin_add_coordinates">+ Pin bei Koordinaten setzen</string>
     <string name="pin_add_hint">oder lange auf die Karte drücken</string>
+    <string name="overlay_list_hint">Häkchen = anzeigen. Oben in der Liste = obenauf. Mit ▲ ▼ die Reihenfolge ändern, mit dem Regler die Deckkraft.</string>
+    <string name="overlay_kind_offline">Offline-Overlay</string>
+    <string name="overlay_kind_gpx">GPX</string>
+    <string name="overlay_kind_online">online (braucht Internet)</string>
+    <string name="overlay_opacity_label">Deckkraft %d %%</string>
 </resources>
