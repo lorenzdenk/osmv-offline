@@ -48,10 +48,6 @@
             app:defaultValue="false"
             app:iconSpaceReserved="false" />
 
-        <Preference android:key="OverlaySource"
-            android:title="@string/stg_overlay_source_title"
-            app:iconSpaceReserved="false" />
-
         <EditTextPreference android:key="ThunderforestKey"
             android:title="OpenCycleMap: API-Schlüssel"
             android:summary="OpenCycleMap kommt von Thunderforest und braucht einen kostenlosen Schlüssel (thunderforest.com → Sign up, Plan „Hobby Project“). Ohne Schlüssel steht „API Key Required“ auf der Karte."
@@ -96,7 +92,7 @@
 
         <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
             android:title="◇ Overlay (oben rechts, nur wenn oben eingeschaltet)"
-            android:summary="Tippen: das zuletzt gewählte Overlay ein- bzw. ausblenden.\nLange drücken: Overlay wählen – eigene Offline-Overlays und GPX-Dateien oder Wander-/Velowege von Waymarked Trails (online, braucht Internet). Die Deckkraft aller Overlays steht oben unter „Deckkraft der Overlays“." />
+            android:summary="Tippen: alle Overlays ausblenden bzw. die zuletzt gezeigten wieder einblenden.\nLange drücken: Overlays wählen – mehrere gleichzeitig möglich: eigene Offline-Overlays und GPX-Dateien sowie Wander-/Velowege von Waymarked Trails (online, braucht Internet). Die Deckkraft aller Overlays steht oben unter „Deckkraft der Overlays“." />
 
         <com.applikationsprogramvara.osmviewer.HelpPreference android:selectable="false" app:iconSpaceReserved="false"
             android:title="📍 Pins"

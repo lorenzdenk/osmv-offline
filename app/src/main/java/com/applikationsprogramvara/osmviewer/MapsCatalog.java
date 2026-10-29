@@ -78,26 +78,22 @@ public class MapsCatalog {
     /** Category index used for offline map files (after the online categories). */
     public static final int OFFLINE_INDEX = MAP_SOURCES.length;
     private static final String PREF_OFFLINE_FILE = "offlineMapFile";
-    private static final String PREF_OVERLAY_FILE = "offlineOverlayFile";
-    /** last overlay switched on ("file:<name>" or "online:<index>"), for the short press on the overlay button */
-    private static final String PREF_LAST_OVERLAY = "lastOverlay";
+    /** overlays shown at the moment, "|"-separated keys "file:<name>" (offline, GPX) or "online:<source name>" */
+    private static final String PREF_OVERLAYS = "overlaysShown";
+    /** overlays shown before the last short press switched them off */
+    private static final String PREF_LAST_OVERLAYS = "overlaysLast";
+    /** older versions: one offline overlay, one online overlay */
+    private static final String PREF_OVERLAY_FILE_OLD = "offlineOverlayFile";
 
     private final SharedPreferences prefs;
     private final CallbackSetMapSource setMap;
-    private final CallbackSetOverlaySource setOverlay;
+    @Nullable private final CallbackOverlays setOverlays;
     private int mapIndex1;
     private int mapIndex2;
-    private int overlayIndex;
 
     @Nullable private OfflineMapManager offline;
     @Nullable private CallbackSetOfflineMap setOfflineMap;
     @Nullable private Runnable requestImport;
-    @Nullable private CallbackSetOfflineOverlay setOfflineOverlay;
-
-    public interface CallbackSetOfflineOverlay {
-        void set(@Nullable File file);
-    }
-
     @Nullable private PinManager pins;
 
     /** Own pins: listed in the map menu (tap = show, pencil = edit), plus "set pin at coordinates". */
@@ -105,28 +101,10 @@ public class MapsCatalog {
         this.pins = pins;
     }
 
-    /** Enables offline overlays (transparent MBTiles over the map), chosen in the map menu. */
-    public void setOfflineOverlayCallback(CallbackSetOfflineOverlay callback) {
-        this.setOfflineOverlay = callback;
-    }
-
-    private void loadOfflineOverlay() {
-        if (offline == null || setOfflineOverlay == null) return;
-        File f = offline.find(prefs.getString(PREF_OVERLAY_FILE, null));
-        setOfflineOverlay.set(f != null && OfflineMapManager.isOverlay(f) ? f : null);
-    }
-
-    /** Shows the given overlay file (null = none) and remembers it. */
-    public void selectOfflineOverlay(@Nullable File file) {
-        if (file == null) prefs.edit().remove(PREF_OVERLAY_FILE).apply();
-        else prefs.edit().putString(PREF_OVERLAY_FILE, file.getName()).putString(PREF_LAST_OVERLAY, "file:" + file.getName()).apply();
-        if (setOfflineOverlay != null) setOfflineOverlay.set(file);
-    }
-
-    public MapsCatalog(SharedPreferences prefs, @Nullable CallbackSetMapSource setMap, @Nullable CallbackSetOverlaySource setOverlay) {
+    public MapsCatalog(SharedPreferences prefs, @Nullable CallbackSetMapSource setMap, @Nullable CallbackOverlays setOverlays) {
         this.prefs = prefs;
         this.setMap = setMap;
-        this.setOverlay = setOverlay;
+        this.setOverlays = setOverlays;
     }
 
     /** Enables the offline category. Without this call the catalog behaves as before (e.g. in settings). */
@@ -147,8 +125,7 @@ public class MapsCatalog {
     public void load() {
         mapIndex1 = prefs.getInt("mapSourceIndex", 0);
         load(mapIndex1);
-        loadOverlay();
-        loadOfflineOverlay();
+        applyOverlays();
     }
 
     public void load(int index1) {
@@ -206,7 +183,7 @@ public class MapsCatalog {
         final String details;
         final File file;           // offline only
         final int index1, index2;  // online only
-        boolean overlay;           // offline overlay ("overlay:none" = no overlay)
+        boolean overlay;           // offline overlay (MBTiles overlay or GPX), several can be shown
 
         MapEntry(String key, String defaultName, String details, File file, int index1, int index2) {
             this.key = key; this.defaultName = defaultName; this.details = details;
@@ -239,21 +216,12 @@ public class MapsCatalog {
         List<MapEntry> list = new java.util.ArrayList<>();
         if (offline == null) return list;
         List<File> files = offline.listOverlays();
-        if (files.isEmpty()) return list;
-        MapEntry none = new MapEntry("overlay:none", context.getString(R.string.overlay_none), "", null, -1, -1);
-        none.overlay = true;
-        list.add(none);
         for (File f : files) {
             MapEntry e = new MapEntry("file:" + f.getName(), OfflineMapManager.readTitle(f), offline.describe(f), f, -1, -1);
             e.overlay = true;
             list.add(e);
         }
         return list;
-    }
-
-    private String currentOverlayKey() {
-        String f = prefs.getString(PREF_OVERLAY_FILE, null);
-        return f == null ? "overlay:none" : "file:" + f;
     }
 
     private List<MapEntry> onlineEntries() {
@@ -269,7 +237,7 @@ public class MapsCatalog {
 
     private void select(MapEntry e) {
         if (e.overlay) {
-            selectOfflineOverlay(e.file);
+            toggleOverlay(e.key);
         } else if (e.file != null) {
             selectOffline(e.file, true);
         } else {
@@ -318,9 +286,9 @@ public class MapsCatalog {
         List<MapEntry> overlays = overlayEntries(context);
         if (!overlays.isEmpty()) {
             addHeader(list, context.getString(R.string.header_overlays), dp);
-            String currentOverlay = currentOverlayKey();
+            List<String> shown = shownOverlays();
             for (MapEntry e : overlays)
-                addRow(list, dialog, e, e.key.equals(currentOverlay), dp);
+                addRow(list, dialog, e, shown.contains(e.key), dp);
         }
 
         if (offline != null) {
@@ -414,7 +382,8 @@ public class MapsCatalog {
         context.getTheme().resolveAttribute(android.R.attr.selectableItemBackground, tv, true);
         row.setBackgroundResource(tv.resourceId);
 
-        android.widget.RadioButton radio = new android.widget.RadioButton(context);
+        // overlays: several at once (check box, the menu stays open); maps: one (radio button)
+        android.widget.CompoundButton radio = e.overlay ? new android.widget.CheckBox(context) : new android.widget.RadioButton(context);
         radio.setChecked(selected);
         radio.setClickable(false);
         radio.setFocusable(false);
@@ -447,10 +416,14 @@ public class MapsCatalog {
             dialog.dismiss();
             showRenameDialog(context, e);
         });
-        if (!"overlay:none".equals(e.key))
-            row.addView(edit);
+        row.addView(edit);
 
         row.setOnClickListener(v -> {
+            if (e.overlay) {
+                toggleOverlay(e.key);
+                radio.setChecked(shownOverlays().contains(e.key));
+                return;
+            }
             dialog.dismiss();
             select(e);
         });
@@ -498,8 +471,8 @@ public class MapsCatalog {
                     // close the archive first if this map is currently shown
                     if (mapIndex1 == OFFLINE_INDEX && e.file.getName().equals(prefs.getString(PREF_OFFLINE_FILE, "")))
                         fallbackToOnline();
-                    if (e.file.getName().equals(prefs.getString(PREF_OVERLAY_FILE, "")))
-                        selectOfflineOverlay(null);
+                    if (shownOverlays().contains(e.key))
+                        toggleOverlay(e.key); // switch it off before the file goes
                     for (File part : offline != null ? offline.parts(e.file) : java.util.Collections.singletonList(e.file))
                         //noinspection ResultOfMethodCallIgnored
                         part.delete();
@@ -508,11 +481,6 @@ public class MapsCatalog {
                 })
                 .setNegativeButton(R.string.btn_cancel, (d, w) -> showMapMenu(context))
                 .show();
-    }
-
-    public void loadOverlay() {
-        overlayIndex = prefs.getInt("overlaySourceIndex", 0);
-        setOverlay(prefs.getBoolean("OverlayDisplayed", false));
     }
 
     public void nextMap() {
@@ -575,90 +543,153 @@ public class MapsCatalog {
         void set(ITileSource source, int image, int index);
     }
 
-    public void setOverlay(boolean show) {
-        if (overlayIndex >= OVERLAY_SOURCES.length)
-            overlayIndex = 0;
+    // ------------------------------------------------------------------ overlays (several at once)
 
-        if (setOverlay != null)
-            setOverlay.set(OVERLAY_SOURCES[overlayIndex], show);
-
-        prefs.edit().putBoolean("OverlayDisplayed", show).apply();
+    /** Keys of the overlays shown at the moment (only those still available). */
+    public List<String> shownOverlays() {
+        if (!prefs.contains(PREF_OVERLAYS)) { // first start of this version: take over the old settings
+            List<String> keys = new java.util.ArrayList<>();
+            String f = prefs.getString(PREF_OVERLAY_FILE_OLD, null);
+            if (f != null) keys.add("file:" + f);
+            if (prefs.getBoolean("OverlayDisplayed", false)) {
+                int i = prefs.getInt("overlaySourceIndex", 0);
+                if (i >= 0 && i < OVERLAY_SOURCES.length) keys.add("online:" + OVERLAY_SOURCES[i].name());
+            }
+            prefs.edit().putString(PREF_OVERLAYS, android.text.TextUtils.join("|", keys)).apply();
+        }
+        List<String> result = new java.util.ArrayList<>();
+        for (String k : split(prefs.getString(PREF_OVERLAYS, "")))
+            if (available(k) && !result.contains(k)) result.add(k);
+        return result;
     }
 
-    /** true if an overlay (offline or online) is shown */
+    private static List<String> split(String s) {
+        List<String> r = new java.util.ArrayList<>();
+        if (s != null) for (String k : s.split("\\|")) if (!k.isEmpty()) r.add(k);
+        return r;
+    }
+
+    private boolean available(String key) {
+        if (key.startsWith("file:")) {
+            if (offline == null) return false;
+            File f = offline.find(key.substring(5));
+            return f != null && OfflineMapManager.isOverlay(f);
+        }
+        return onlineSource(key) != null;
+    }
+
+    @Nullable
+    private static ITileSource onlineSource(String key) {
+        if (!key.startsWith("online:")) return null;
+        for (OnlineTileSourceBase src : OVERLAY_SOURCES)
+            if (src.name().equals(key.substring(7))) return src;
+        return null;
+    }
+
     public boolean anyOverlayShown() {
-        return prefs.getString(PREF_OVERLAY_FILE, null) != null || prefs.getBoolean("OverlayDisplayed", false);
+        return !shownOverlays().isEmpty();
+    }
+
+    private void setShown(List<String> keys) {
+        prefs.edit().putString(PREF_OVERLAYS, android.text.TextUtils.join("|", keys)).apply();
+        applyOverlays();
+    }
+
+    /** Hands the shown overlays to the map, offline ones (list order) below the online ones. */
+    public void applyOverlays() {
+        if (setOverlays == null) return;
+        List<String> shown = shownOverlays();
+        java.util.LinkedHashMap<String, Object> result = new java.util.LinkedHashMap<>();
+        if (offline != null)
+            for (File f : offline.listOverlays())
+                if (shown.contains("file:" + f.getName())) result.put("file:" + f.getName(), f);
+        for (OnlineTileSourceBase src : OVERLAY_SOURCES)
+            if (shown.contains("online:" + src.name())) result.put("online:" + src.name(), src);
+        setOverlays.set(result);
+    }
+
+    /** Switches one overlay on or off (map menu, overlay chooser). */
+    public void toggleOverlay(String key) {
+        List<String> shown = shownOverlays();
+        if (!shown.remove(key)) shown.add(key);
+        setShown(shown);
+    }
+
+    /** Shows this overlay file in addition to the others (after importing it). */
+    public void showOverlayFile(File file) {
+        List<String> shown = shownOverlays();
+        if (!shown.contains("file:" + file.getName())) shown.add("file:" + file.getName());
+        setShown(shown);
+    }
+
+    /** Overlay button hidden in the settings: online overlays off (offline ones stay, set in the map menu). */
+    public void hideOnlineOverlays() {
+        List<String> shown = shownOverlays();
+        List<String> keep = new java.util.ArrayList<>();
+        for (String k : shown) if (!k.startsWith("online:")) keep.add(k);
+        if (keep.size() != shown.size()) setShown(keep);
     }
 
     /**
-     * Short press on the overlay button: switches the shown overlay off, or the last chosen one on again
-     * (offline or online; at first the first offline overlay, if there is one).
+     * Short press on the overlay button: switches all shown overlays off, or the ones shown last on again
+     * (at first the first offline overlay, if there is one).
      */
     public void toggleOverlay() {
-        if (anyOverlayShown()) {
-            selectOfflineOverlay(null);
-            setOverlay(false);
+        List<String> shown = shownOverlays();
+        if (!shown.isEmpty()) {
+            prefs.edit().putString(PREF_LAST_OVERLAYS, android.text.TextUtils.join("|", shown)).apply();
+            setShown(new java.util.ArrayList<>());
             return;
         }
-        String last = prefs.getString(PREF_LAST_OVERLAY, null);
-        if (last == null && offline != null && !offline.listOverlays().isEmpty())
-            last = "file:" + offline.listOverlays().get(0).getName();
-        if (last != null && last.startsWith("file:") && offline != null) {
-            File f = offline.find(last.substring(5));
-            if (f != null && OfflineMapManager.isOverlay(f)) {
-                selectOfflineOverlay(f);
-                return;
-            }
-        }
-        setOverlay(true);
+        List<String> last = new java.util.ArrayList<>();
+        for (String k : split(prefs.getString(PREF_LAST_OVERLAYS, ""))) if (available(k)) last.add(k);
+        if (last.isEmpty() && offline != null && !offline.listOverlays().isEmpty())
+            last.add("file:" + offline.listOverlays().get(0).getName());
+        if (last.isEmpty())
+            last.add("online:" + OVERLAY_SOURCES[0].name());
+        setShown(last);
     }
 
     /**
-     * Long press on the overlay button: offline overlays (own MBTiles) first, then the online overlays.
-     * One overlay at a time: choosing one switches the other kind off.
+     * Long press on the overlay button: all overlays with check boxes, offline ones (own MBTiles and GPX)
+     * first, then the online ones. Several can be on at the same time.
      */
     public void selectOverlay(Context context) {
-        MenuUtils.MenuBuilder menu = new MenuUtils.MenuBuilder(context)
-                .setTitle(R.string.dlg_select_overlay_source_title);
-        int checked = -1, item = 0;
-
-        List<File> files = offline != null ? offline.listOverlays() : java.util.Collections.emptyList();
-        String activeFile = prefs.getString(PREF_OVERLAY_FILE, null);
-        boolean onlineShown = prefs.getBoolean("OverlayDisplayed", false);
-
-        menu.add(context.getString(R.string.overlay_none), () -> {
-            selectOfflineOverlay(null);
-            setOverlay(false);
-        });
-        if (activeFile == null && !onlineShown) checked = item;
-        item++;
-
-        for (File f : files) {
-            menu.add(OfflineMapManager.readTitle(f) + " " + context.getString(R.string.overlay_offline_suffix), () -> {
-                setOverlay(false);
-                selectOfflineOverlay(f);
-            });
-            if (f.getName().equals(activeFile)) checked = item;
-            item++;
+        List<String> keys = new java.util.ArrayList<>();
+        List<String> titles = new java.util.ArrayList<>();
+        if (offline != null)
+            for (File f : offline.listOverlays()) {
+                String key = "file:" + f.getName();
+                String custom = prefs.getString("mapName_" + key, null);
+                String title = custom != null && !custom.trim().isEmpty() ? custom : OfflineMapManager.readTitle(f);
+                keys.add(key);
+                titles.add(title + " " + context.getString(R.string.overlay_offline_suffix));
+            }
+        for (OnlineTileSourceBase src : OVERLAY_SOURCES) {
+            if (src.name().endsWith(" http")) continue; // fallbacks for very old devices
+            keys.add("online:" + src.name());
+            titles.add(src.name() + " " + context.getString(R.string.overlay_online_suffix));
         }
+        List<String> shown = shownOverlays();
+        boolean[] checked = new boolean[keys.size()];
+        for (int i = 0; i < keys.size(); i++) checked[i] = shown.contains(keys.get(i));
 
-        for (int i = 0; i < OVERLAY_SOURCES.length; i++) {
-            int i2 = i;
-            menu.add(OVERLAY_SOURCES[i].toString() + " " + context.getString(R.string.overlay_online_suffix), () -> {
-                selectOfflineOverlay(null);
-                overlayIndex = i2;
-                prefs.edit().putInt("overlaySourceIndex", overlayIndex).putString(PREF_LAST_OVERLAY, "online:" + i2).apply();
-                setOverlay(true);
-            });
-            if (checked < 0 && onlineShown && i == overlayIndex) checked = item;
-            item++;
-        }
-
-        menu.show2(checked);
+        new AlertDialog.Builder(context)
+                .setTitle(R.string.dlg_select_overlay_source_title)
+                .setMultiChoiceItems(titles.toArray(new String[0]), checked, (d, which, isChecked) -> {
+                    List<String> now = shownOverlays();
+                    String k = keys.get(which);
+                    if (isChecked && !now.contains(k)) now.add(k);
+                    if (!isChecked) now.remove(k);
+                    setShown(now);
+                })
+                .setPositiveButton(R.string.btn_ok, null)
+                .show();
     }
 
-    public interface CallbackSetOverlaySource {
-        void set(ITileSource source, boolean show);
+    /** overlays to show, in drawing order: key → File (offline MBTiles or GPX) or ITileSource (online) */
+    public interface CallbackOverlays {
+        void set(java.util.LinkedHashMap<String, Object> overlays);
     }
 
 

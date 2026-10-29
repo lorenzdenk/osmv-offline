@@ -122,7 +122,8 @@ public class MainActivity extends AppCompatActivity {
     //private boolean followMode;
     private boolean showDebugInfo;
     private ScaleBarOverlay mScaleBarOverlay;
-    private TilesOverlay overlay;
+    /** overlays shown over the map (offline MBTiles, GPX, online), by key "file:<name>" / "online:<name>" */
+    private final java.util.LinkedHashMap<String, Overlay> shownOverlays = new java.util.LinkedHashMap<>();
     private UnitCalcInterface unitCalc;
     private GeoPoint requiredCenter;
     private static final SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss", Locale.ROOT); // yy-MM-dd HH:mm:ss
@@ -225,26 +226,7 @@ public class MainActivity extends AppCompatActivity {
             map.setTileSource(source);
             btnChangeSource.setImageResource(image);
             mScaleBarOverlay.setBackgroundPaint(index == 1 ? new Paint() {{ setColor(0xCCFFFFFF); }} : null);
-        }, (source, show) -> {
-            if (overlay != null) {
-                map.getOverlays().remove(overlay);
-                overlay = null;
-            }
-
-            if (show) {
-                MapTileProviderBase provider = new MapTileProviderBasic(this);
-                provider.setTileSource(source);
-                overlay = new TilesOverlay(provider, this);
-                overlay.setLoadingBackgroundColor(Color.TRANSPARENT);
-                provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
-                map.getOverlays().add(overlay);
-                applyOverlayOpacity();
-                keepMarkersOnTop();
-            }
-            updateOverlayButton();
-
-            map.invalidate();
-        });
+        }, this::applyOverlays);
 
         offlineMaps = new OfflineMapManager(this);
         pins = new PinManager(prefs, map, this::jump);
@@ -252,7 +234,6 @@ public class MainActivity extends AppCompatActivity {
         mapsCatalog.setPinJump(this::jump);
         mapsCatalog.setOffline(offlineMaps, this::applyOfflineMap,
                 () -> pickOfflineMap.launch(new String[]{"*/*"})); // .mbtiles etc. have no registered MIME type
-        mapsCatalog.setOfflineOverlayCallback(this::applyOfflineOverlay);
 
         loadSettings();
 
@@ -427,7 +408,7 @@ public class MainActivity extends AppCompatActivity {
         if (btnRuler != null)
             btnRuler.setVisibility(prefs.getBoolean("ShowRulerButton", false) ? View.VISIBLE : View.GONE);
         if (!showOverlayButton)
-            mapsCatalog.setOverlay(false);
+            mapsCatalog.hideOnlineOverlays();
 
         outOfScreenPointer.turnOnOff(prefs.getBoolean("ExperimentalOutOfCenterPointer", false));
 
@@ -1097,61 +1078,88 @@ public class MainActivity extends AppCompatActivity {
             m.setScale(1f, 1f, 1f, a);
             filter = new android.graphics.ColorMatrixColorFilter(m);
         }
-        if (overlay != null) overlay.setColorFilter(filter);
-        if (offlineOverlay instanceof TilesOverlay) ((TilesOverlay) offlineOverlay).setColorFilter(filter);
-        if (offlineOverlay instanceof GpxOverlay) ((GpxOverlay) offlineOverlay).setOpacity(a);
+        for (Overlay o : shownOverlays.values()) {
+            if (o instanceof TilesOverlay) ((TilesOverlay) o).setColorFilter(filter);
+            if (o instanceof GpxOverlay) ((GpxOverlay) o).setOpacity(a);
+        }
         map.invalidate();
     }
 
     // ------------------------------------------------------------------ offline overlays
 
-    private Overlay offlineOverlay = null;
     private PinManager pins;
-    private File activeOverlayFile = null;
 
-    /** Shows a transparent offline map (MBTiles type "overlay") over the current map; null removes it. */
-    void applyOfflineOverlay(@Nullable File file) {
-        if (file != null && file.equals(activeOverlayFile)) return;
-        if (offlineOverlay != null) {
-            map.getOverlays().remove(offlineOverlay);
-            offlineOverlay.onDetach(map);
-            offlineOverlay = null;
-            activeOverlayFile = null;
-        }
-        if (file != null) {
-            try {
-                if (OfflineMapManager.isGpx(file)) {
-                    GpxOverlay gpx = new GpxOverlay(GpxOverlay.read(file), map);
-                    offlineOverlay = gpx;
-                    // jump to the track if none of it is in view
-                    org.osmdroid.util.BoundingBox box = gpx.getGpx().bounds();
-                    if (box != null && map.getWidth() > 0) {
-                        org.osmdroid.util.BoundingBox view = map.getBoundingBox();
-                        boolean visible = box.getLatSouth() <= view.getLatNorth() && box.getLatNorth() >= view.getLatSouth()
-                                && box.getLonWest() <= view.getLonEast() && box.getLonEast() >= view.getLonWest();
-                        if (!visible) jump(box.getCenterWithDateLine());
-                    }
-                } else {
-                    OfflineTileProvider provider = new OfflineTileProvider(new SimpleRegisterReceiver(getApplicationContext()), new File[]{file});
-                    int tileSize = OfflineMapManager.readTileSize(file);
-                    provider.setTileSource(new XYTileSource("OfflineOverlay", 0, 22, tileSize, ".png", new String[0]));
-                    TilesOverlay tiles = new TilesOverlay(provider, this);
-                    tiles.setLoadingBackgroundColor(Color.TRANSPARENT);
-                    tiles.setLoadingLineColor(Color.TRANSPARENT);
-                    provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
-                    offlineOverlay = tiles;
-                }
-                map.getOverlays().add(offlineOverlay);
-                applyOverlayOpacity();
-                keepMarkersOnTop(); // above the map, below pins, position, ruler etc.
-                activeOverlayFile = file;
-            } catch (Exception e) {
-                offlineOverlay = null;
-                Toast.makeText(this, getString(R.string.toast_offline_open_failed, e.getMessage()), Toast.LENGTH_LONG).show();
+    /**
+     * Shows exactly the given overlays over the map (key → offline File or online tile source), in this order;
+     * overlays no longer listed are removed. Several can be shown at the same time.
+     */
+    void applyOverlays(java.util.LinkedHashMap<String, Object> wanted) {
+        // remove the ones no longer wanted
+        for (java.util.Iterator<java.util.Map.Entry<String, Overlay>> it = shownOverlays.entrySet().iterator(); it.hasNext(); ) {
+            java.util.Map.Entry<String, Overlay> e = it.next();
+            if (!wanted.containsKey(e.getKey())) {
+                map.getOverlays().remove(e.getValue());
+                e.getValue().onDetach(map);
+                it.remove();
             }
         }
+        // create the new ones, in the wanted order
+        java.util.LinkedHashMap<String, Overlay> ordered = new java.util.LinkedHashMap<>();
+        for (java.util.Map.Entry<String, Object> w : wanted.entrySet()) {
+            Overlay o = shownOverlays.get(w.getKey());
+            if (o == null) {
+                o = createOverlay(w.getValue());
+                if (o == null) continue;
+            }
+            ordered.put(w.getKey(), o);
+        }
+        for (Overlay o : shownOverlays.values()) map.getOverlays().remove(o);
+        shownOverlays.clear();
+        shownOverlays.putAll(ordered);
+        for (Overlay o : shownOverlays.values()) map.getOverlays().add(o);
+        applyOverlayOpacity();
+        keepMarkersOnTop(); // above the map, below pins, position, ruler etc.
         if (btnOverlay != null) updateOverlayButton();
         map.invalidate();
+    }
+
+    @Nullable
+    private Overlay createOverlay(Object what) {
+        try {
+            if (what instanceof ITileSource) { // online (Waymarked Trails)
+                MapTileProviderBase provider = new MapTileProviderBasic(this);
+                provider.setTileSource((ITileSource) what);
+                TilesOverlay tiles = new TilesOverlay(provider, this);
+                tiles.setLoadingBackgroundColor(Color.TRANSPARENT);
+                tiles.setLoadingLineColor(Color.TRANSPARENT);
+                provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
+                return tiles;
+            }
+            File file = (File) what;
+            if (OfflineMapManager.isGpx(file)) {
+                GpxOverlay gpx = new GpxOverlay(GpxOverlay.read(file), map);
+                // jump to the track if none of it is in view
+                org.osmdroid.util.BoundingBox box = gpx.getGpx().bounds();
+                if (box != null && map.getWidth() > 0) {
+                    org.osmdroid.util.BoundingBox view = map.getBoundingBox();
+                    boolean visible = box.getLatSouth() <= view.getLatNorth() && box.getLatNorth() >= view.getLatSouth()
+                            && box.getLonWest() <= view.getLonEast() && box.getLonEast() >= view.getLonWest();
+                    if (!visible) jump(box.getCenterWithDateLine());
+                }
+                return gpx;
+            }
+            OfflineTileProvider provider = new OfflineTileProvider(new SimpleRegisterReceiver(getApplicationContext()), new File[]{file});
+            int tileSize = OfflineMapManager.readTileSize(file);
+            provider.setTileSource(new XYTileSource("OfflineOverlay", 0, 22, tileSize, ".png", new String[0]));
+            TilesOverlay tiles = new TilesOverlay(provider, this);
+            tiles.setLoadingBackgroundColor(Color.TRANSPARENT);
+            tiles.setLoadingLineColor(Color.TRANSPARENT);
+            provider.getTileRequestCompleteHandlers().add(map.getTileRequestCompleteHandler());
+            return tiles;
+        } catch (Exception e) {
+            Toast.makeText(this, getString(R.string.toast_offline_open_failed, e.getMessage()), Toast.LENGTH_LONG).show();
+            return null;
+        }
     }
 
     /** Restores the normal online tile provider after an offline map was shown. */
@@ -1257,7 +1265,7 @@ public class MainActivity extends AppCompatActivity {
                 if (dialog.isShowing()) dialog.dismiss();
                 Toast.makeText(MainActivity.this, getString(R.string.toast_offline_imported, file.getName()), Toast.LENGTH_LONG).show();
                 if (OfflineMapManager.isOverlay(file))
-                    mapsCatalog.selectOfflineOverlay(file); // transparent layer: shown over the current map
+                    mapsCatalog.showOverlayFile(file); // transparent layer: shown over the current map, with the others
                 else
                     mapsCatalog.selectOffline(file, true);
             }
@@ -1524,7 +1532,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** overlay button "on" while any overlay (offline or online) is shown */
     private void updateOverlayButton() {
-        btnOverlay.setImageResource(overlay != null || offlineOverlay != null ? R.drawable.ic_overlay_on : R.drawable.ic_overlay_off);
+        btnOverlay.setImageResource(!shownOverlays.isEmpty() ? R.drawable.ic_overlay_on : R.drawable.ic_overlay_off);
     }
 
     boolean switchOverlaySecondary() {

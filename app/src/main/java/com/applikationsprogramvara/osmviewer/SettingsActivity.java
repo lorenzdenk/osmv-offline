@@ -161,7 +161,6 @@ public class SettingsActivity extends AppCompatActivity {
             }
 
 
-            setOverlaySource();
 
             findPreference("License").setOnPreferenceClickListener(preference -> {
                 android.widget.TextView tv = new android.widget.TextView(getContext());
@@ -211,15 +210,6 @@ public class SettingsActivity extends AppCompatActivity {
             });
         }
 
-        private void setOverlaySource() {
-            Preference map1 = findPreference("OverlaySource");
-            MapsCatalog mapsCatalog = new MapsCatalog(map1.getSharedPreferences(), null, (source, show) -> map1.setSummary(source.name()));
-            mapsCatalog.loadOverlay();
-            map1.setOnPreferenceClickListener(preference -> {
-                mapsCatalog.selectOverlay(context);
-                return true;
-            });
-        }
 
     }
 
